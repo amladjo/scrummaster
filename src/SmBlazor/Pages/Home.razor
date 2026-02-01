@@ -12,8 +12,21 @@
         <td colspan="3" style="padding: 15px;">&nbsp;</td>
     </tr>
     <tr>
-        <td colspan="3" style="text-align: left;">
-            <span id="today" style="font-weight: 600;">@TodayText</span>&nbsp;<span id="statusIndicator" title="@StatusTooltip">@((MarkupString)StatusIndicatorHtml)</span>
+        <td colspan="3" style="padding-bottom: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center;">
+                    <span id="today" style="font-weight: 600;">@TodayText</span>
+                    &nbsp;<span id="statusIndicator" title="@StatusTooltip">@((MarkupString)StatusIndicatorHtml)</span>
+                </div>
+                <div>
+                    <button @onclick="()=>ChangeDay(-1)" title="Previous day" style="border:none;background:none;cursor:pointer;">
+                        <i class="fa fa-chevron-left"></i>
+                    </button>
+                    <button @onclick="()=>ChangeDay(1)" title="Next day" style="border:none;background:none;cursor:pointer;">
+                        <i class="fa fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
         </td>
     </tr>
     <tr>
@@ -328,6 +341,16 @@
             DayOfWeek.Sunday => "Sunday",
             _ => ""
         };
+    }
+
+    private void ChangeDay(int offset)
+    {
+        // Compose new ?today= offset relative to current Sm.Today
+        var newDate = Sm.Today.AddDays(offset).ToString("yyyy-MM-dd");
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var baseUri = uri.GetLeftPart(UriPartial.Path);
+        var newUri = $"{baseUri}?today={newDate}";
+        Nav.NavigateTo(newUri, forceLoad: true);
     }
 }
 
