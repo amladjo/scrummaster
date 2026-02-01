@@ -11,4 +11,60 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="9.0.11" PrivateAssets="all" />
   </ItemGroup>
 
+  <!-- GitHub Pages: publish under /scrummaster/ repo path -->
+  <PropertyGroup>
+    <!-- Keep this in sync with your GitHub repository name -->
+    <GitHubPagesBaseHref>/scrummaster/</GitHubPagesBaseHref>
+  </PropertyGroup>
+
+  <!--
+    We keep wwwroot/index.html with <base href="/"> for local dev.
+    During publish, we rewrite the published index.html base href so the app works under GitHub Pages.
+  -->
+  <Target Name="RewriteBaseHrefForGitHubPages" AfterTargets="Publish">
+    <PropertyGroup>
+      <!-- Default publish layout is $(PublishDir)wwwroot\index.html -->
+      <_PublishedIndexHtml>$(PublishDir)wwwroot\index.html</_PublishedIndexHtml>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="Rewriting base href in '$(_PublishedIndexHtml)' to '$(GitHubPagesBaseHref)'" />
+
+    <ReadLinesFromFile File="$(_PublishedIndexHtml)">
+      <Output TaskParameter="Lines" ItemName="_IndexLines" />
+    </ReadLinesFromFile>
+
+    <ItemGroup>
+      <_IndexLinesUpdated Include="@(_IndexLines->Replace('&lt;base href=&quot;/&quot; /&gt;','&lt;base href=&quot;$(GitHubPagesBaseHref)&quot; /&gt;'))" />
+    </ItemGroup>
+
+    <WriteLinesToFile File="$(_PublishedIndexHtml)" Lines="@(_IndexLinesUpdated)" Overwrite="true" />
+  </Target>
+
+  <!-- Optional: flatten publish output so files live directly under docs/ (no docs/wwwroot). -->
+  <Target Name="FlattenPublishOutputForGitHubPages" AfterTargets="Publish">
+    <PropertyGroup>
+      <_PublishedWwwroot>$(PublishDir)wwwroot\</_PublishedWwwroot>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_WwwrootFiles Include="$(_PublishedWwwroot)**/*" />
+    </ItemGroup>
+
+    <!-- Copy wwwroot/* to PublishDir root -->
+    <Copy SourceFiles="@(_WwwrootFiles)" DestinationFiles="@(_WwwrootFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+
+    <!-- Remove the now-redundant wwwroot folder -->
+    <RemoveDir Directories="$(_PublishedWwwroot)" />
+  </Target>
+
+  <!-- Ensure GitHub Pages serves _framework (disable Jekyll processing) -->
+  <Target Name="CreateNoJekyllForGitHubPages" AfterTargets="Publish">
+    <PropertyGroup>
+      <_NoJekyllFile>$(PublishDir).nojekyll</_NoJekyllFile>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="Creating '$(_NoJekyllFile)'" />
+    <WriteLinesToFile File="$(_NoJekyllFile)" Lines="" Overwrite="true" />
+  </Target>
+
 </Project>
