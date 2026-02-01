@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Scrum Master</title>
+	<link rel="stylesheet" type="text/css" href="styles\scrum-master.css">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+	<script src="lib/dateExtensions.js"></script>
+	<script src="lib/StorageData.js"></script>
+	<script src="lib/SMLib.js"></script></head>
+<body>
+<table style="width:100%;">
+	<tr>
+		<td colspan="3" style="padding: 15px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td colspan="3" style="text-align: left;">
+			<span id="today" style="font-weight: 600;"></span>&nbsp;<span id="statusIndicator"><i
+				class="fas fa-spinner"></i></span>
+		</td>
+	</tr>
+	<tr>
+		<td style="vertical-align: top; text-align: left; width: 48%;">
+			<h5 id="firstWeekTitle">1.</h5>
+			<div id="firstWeek"></div>
+			<h5 id="secondWeekTitle">2.</h5>
+			<div id="secondWeek"></div>
+		</td>
+		<td style="width: 2%;">&nbsp;</td>
+		<td style="vertical-align: top; width: 50%;">
+			<h5 class="calendar">Who's Out</h5>
+			<div id="whosOut"></div>
+		</td>
+	</tr>
+</table>
+<script>
+	const urlParams = new URLSearchParams(window.location.search);
+	const jb_debug = urlParams.get("_ij_reload");
+	const paramToday = urlParams.get('today');
+	const paramSleep = urlParams.get('sleep');
+
+	let smLib = new SMLib(refresh);
+
+	if (paramToday) {
+		if ([" ", "+", "-", "0"].includes(paramToday[0]) && isValidNumber(paramToday)) {
+			smLib.today = smLib.today.addDays(parseInt(paramToday));
+		} else if (isValidDate(paramToday)) {
+			const today = new Date(paramToday);
+			today.setHours(0,0,0,0);
+			smLib.today = today;
+		}
+		console.log("paramToday", smLib.today);
+	}
+
+	if (paramSleep) {
+		smLib._sleep = parseInt(paramSleep);
+		console.log("paramSleep", smLib._sleep);
+	}
+
+	if (jb_debug && jb_debug === "RELOAD_ON_SAVE") {
+		smLib._isDebug = true;
+		console.log("isDebug", smLib._isDebug);
+	}
+
+	smLib.startRefresh();
+	// smLib.reloadAt("00:00, +0:0:13, +1, +2, +4, +10, 14:50, +14:0");
+
+	function isValidNumber(numberAsString) {
+		return !isNaN(parseInt(numberAsString));
+	}
+
+	function isValidDate(dateAsString) {
+		return !isNaN(Date.parse(dateAsString))
+	}
+
+	function getReplacementScrumMaster(date) {
+		for (let days of smLib.replacement) {
+			if (date >= days.start && date < days.end.addDays(1)) {
+				return days;
+			}
+		}
+		return null;
+	}
+
+	function updateToday() {
+		const todayElement = document.querySelector("#today");
+		const today = smLib.today;
+		todayElement.innerHTML = `${formatDayMonth(today)}.${today.getFullYear()} - ${getDayOfWeek((today.getDay() + 6) % 7)}`;
+		updateStatusIndicator();
+	}
+
+	function updateStatusIndicator() {
+		const statusIndicator = document.getElementById('statusIndicator');
+		if (smLib.isLoading) {
+			if (smLib.hasCashedData) {
+				statusIndicator.innerHTML = '<i class="fas fa-wifi"></i>';
+			} else {
+				statusIndicator.innerHTML = "";
+			}
+			statusIndicator.innerHTML += '&nbsp;<i class="fas fa-spinner fa-spin"></i>'
+		} else {
+			statusIndicator.innerHTML = '<i class="fas fa-check"></i>';
+			setTimeout(removeStatusIndicator, 5000);
+		}
+
+		if (smLib.cashDataNotAllowed) {
+			statusIndicator.innerHTML += '&nbsp;<i class="fas fa-exclamation-triangle"></i>'
+		}
+		if (smLib.today.nonWorkingDay()) {
+			statusIndicator.innerHTML += '&nbsp;<i class="fas fa-bed"></i>'
+		}
+		if (smLib.isHoliday(smLib.today)) {
+			statusIndicator.innerHTML += '&nbsp;<i class="fas fa-gift"></i>'
+		}
+	}
+
+	function removeStatusIndicator() {
+		const statusIndicator = document.getElementById('statusIndicator');
+		statusIndicator.innerHTML = statusIndicator.innerHTML.replace('<i class=\"fas fa-check\"></i>', '');
+	}
+
+	function generateWeeks(weekIndex, selector, firstMonday, isActiveWeek) {
+
+		updateTitleWithWeekNumber(weekIndex, selector + "Title", firstMonday, isActiveWeek);
+
+		const workDaysOfWeek = daysOfWeek().length - 2;
+		const dayElement = document.querySelector(selector);
+		let innerHTML = ""
+		for (let i = 0; i < workDaysOfWeek; i++) {
+			const currentDate = firstMonday.addDays(i);
+			let text = getDayOfWeek(i).substring(0, 3);
+			if (smLib.isHolidayForAllTeamMembers(currentDate)) {
+				text = `<span class="disabled">${text} - ${smLib.getAllHolidayName(currentDate)}</span>`;
+			} else {
+				text += ` - ${smLib.getScrumMasterName(currentDate, (weekIndex - 1) * workDaysOfWeek + i)}`;
+				if (smLib.isBeforeToday(currentDate)) {
+					text = `<s class="completed">${text}</s>`;
+				} else if (smLib.isToday(currentDate)) {
+					text = `<b class="current-scrum-master">${text}</b>`;
+				}
+			}
+
+			innerHTML += `${text}<br>`;
+		}
+		dayElement.innerHTML = innerHTML;
+	}
+
+	function updateTitleWithWeekNumber(weekIndex, selector, firstDay, isActiveWeek) {
+		const lastDay = firstDay.addDays(4);
+		const titleElement = document.querySelector(selector);
+		titleElement.style.fontWeight = isActiveWeek ? 'bold' : 'normal';
+		titleElement.innerHTML = `${weekIndex}. Week ${formatDayMonth(firstDay)}-${formatDayMonth(lastDay)}`;
+	}
+
+	function updateWhosOut() {
+		const whosOutElement = document.querySelector("#whosOut");
+		if (smLib.isInitializing) {
+			whosOutElement.innerHTML = "initializing...";
+		} else {
+			let innerHTML = '<ul>';
+			for (let item of smLib.whosOut) {
+				let itemClass;
+				if (!item.approved) {
+					itemClass = "waiting";
+				}
+				if (item.status === 0) {
+					itemClass += " current";
+				} else if (item.status < 0) {
+					itemClass += " completed";
+				} else {
+					itemClass += " normal";
+				}
+
+				const teamMember = smLib.getTeamMember(item.memberId);
+				const shortName = teamMember ? teamMember.shortName : item.memberId;
+				let whosItem = `${shortName}&nbsp;${formatDatePeriod(item.start, item.end)}`;
+				innerHTML += `<li class="${itemClass}" title="${item.reason}">${whosItem}</li>`;
+			}
+			innerHTML += "</ul>";
+			whosOutElement.innerHTML = innerHTML;
+		}
+	}
+
+	function formatDatePeriod(start, end) {
+		if (formatDayMonth(start) === formatDayMonth(end)) {
+			return formatDayMonth(start);
+		}
+		return `${formatDayMonth(start)}-${formatDayMonth(end)}`;
+	}
+
+	function formatDayMonth(date) {
+		const day = String(date.getDate()).padStart(2, '0');
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		return `${day}.${month}`;
+	}
+
+	function CurrentWeekNumberFromFixedDate(date) {
+		return Math.ceil((date - new Date(2023, 0, 2)) / 604800000);
+	}
+
+	function IsFirstWeekCurrentWeek(date) {
+		return CurrentWeekNumberFromFixedDate(date) % 2 === 0;
+	}
+
+	function getDayOfWeek(day) {
+		return daysOfWeek()[day];
+	}
+
+	function daysOfWeek() {
+		return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+	}
+
+	function refresh() {
+		const isFirstWeekCurrentWeek = IsFirstWeekCurrentWeek(smLib.today);
+		const isSecondWeekCurrentWeek = !isFirstWeekCurrentWeek;
+
+		const thisMonday = smLib.today.getPreviousMonday();
+		const firstMonday = isFirstWeekCurrentWeek ? new Date(thisMonday) : thisMonday.addDays(-7);
+		const secondMonday = isSecondWeekCurrentWeek ? new Date(thisMonday) : thisMonday.addDays(7);
+
+		updateToday();
+		generateWeeks(1, "#firstWeek", firstMonday, isFirstWeekCurrentWeek);
+		generateWeeks(2, "#secondWeek", secondMonday, isSecondWeekCurrentWeek);
+		updateWhosOut();
+	}
+</script>
+</body>
+</html>

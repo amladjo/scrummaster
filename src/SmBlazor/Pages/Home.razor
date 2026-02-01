@@ -1,0 +1,283 @@
+﻿@page "/"
+@using SmBlazor.Services
+@using SmBlazor.Utils
+@inject SmService Sm
+@inject IJSRuntime JS
+
+<PageTitle>Scrum Master</PageTitle>
+
+<table style="width:100%;">
+    <tr>
+        <td colspan="3" style="padding: 15px;">&nbsp;</td>
+    </tr>
+    <tr>
+        <td colspan="3" style="text-align: left;">
+            <span id="today" style="font-weight: 600;">@TodayText</span>
+            &nbsp;
+            <span id="statusIndicator" title="@StatusTooltip">@((MarkupString)StatusIndicatorHtml)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="vertical-align: top; text-align: left; width: 48%;">
+            <h5 id="firstWeekTitle" style="font-weight:@(IsFirstWeekCurrentWeek ? "bold" : "normal")">@FirstWeekTitle</h5>
+            <div id="firstWeek">@((MarkupString)FirstWeekHtml)</div>
+            <h5 id="secondWeekTitle" style="font-weight:@(IsSecondWeekCurrentWeek ? "bold" : "normal")">@SecondWeekTitle</h5>
+            <div id="secondWeek">@((MarkupString)SecondWeekHtml)</div>
+        </td>
+        <td style="width: 2%;">&nbsp;</td>
+        <td style="vertical-align: top; width: 50%;">
+            <h5 class="calendar">Who's Out</h5>
+            <div id="whosOut">@((MarkupString)WhosOutHtml)</div>
+        </td>
+    </tr>
+</table>
+
+@code {
+    private bool _initialized;
+    private bool _showCheckIcon;
+    private bool _wasLoading;
+    private bool _showCheckIconInProgress;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LogToConsoleAsync($"[OnInitializedAsync] _wasLoading={_wasLoading}, Sm.IsLoading={Sm.IsLoading}, _showCheckIcon={_showCheckIcon}");
+        await Sm.InitializeAsync();
+        _initialized = true;
+        await InvokeAsync(StateHasChanged);
+        var refreshTask = Sm.RefreshAsync();
+        await InvokeAsync(StateHasChanged);
+        await refreshTask;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await LogToConsoleAsync($"[OnAfterRenderAsync] _wasLoading={_wasLoading}, Sm.IsLoading={Sm.IsLoading}, _showCheckIcon={_showCheckIcon}");
+        if (!_showCheckIconInProgress && _wasLoading && !Sm.IsLoading)
+        {
+            _showCheckIconInProgress = true;
+            _showCheckIcon = true;
+            _wasLoading = Sm.IsLoading;
+            StateHasChanged();
+            await Task.Delay(5000);
+            _showCheckIcon = false;
+            _showCheckIconInProgress = false;
+            StateHasChanged();
+        }
+        else
+        {
+            _wasLoading = Sm.IsLoading;
+        }
+    }
+
+    private async Task LogToConsoleAsync(string message)
+    {
+        await JS.InvokeVoidAsync("console.log", message);
+    }
+
+    private string TodayText
+    {
+        get
+        {
+            var today = Sm.Today;
+            var dow = GetDayOfWeek(today.DayOfWeek);
+            return $"{FormatDayMonth(today)}.{today.Year} - {dow}";
+        }
+    }
+
+    private string StatusIndicatorHtml
+    {
+        get
+        {
+            if (Sm.IsLoading)
+            {
+                var html = "";
+                if (Sm.HasCachedData)
+                    html += "<i class=\"fa-solid fa-wifi\"></i>";
+                html += (html.Length > 0 ? "&nbsp;" : "");
+                html += "<i class=\"fa-solid fa-spinner fa-spin sm-spin\"></i>";
+                if (Sm.CacheNotAllowed)
+                    html += "&nbsp;<i class=\"fa-solid fa-exclamation-triangle\"></i>";
+                if (Sm.Today.NonWorkingDay())
+                    html += "&nbsp;<i class=\"fa-solid fa-bed\"></i>";
+                if (Sm.IsHolidayForAllTeamMembers(Sm.Today))
+                    html += "&nbsp;<i class=\"fa-solid fa-gift\"></i>";
+                return html;
+            }
+
+            var done = "";
+            if (_showCheckIcon)
+                done += "<i class=\"fa-solid fa-check\"></i>";
+            if (Sm.CacheNotAllowed)
+                done += "&nbsp;<i class=\"fa-solid fa-exclamation-triangle\"></i>";
+            if (Sm.Today.NonWorkingDay())
+                done += "&nbsp;<i class=\"fa-solid fa-bed\"></i>";
+            if (Sm.IsHolidayForAllTeamMembers(Sm.Today))
+                done += "&nbsp;<i class=\"fa-solid fa-gift\"></i>";
+            return done;
+        }
+    }
+
+    private string StatusTooltip
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(Sm.LastFetchStatus))
+                parts.Add(Sm.LastFetchStatus);
+            if (!string.IsNullOrWhiteSpace(Sm.LastFetchError))
+                parts.Add("ERROR: " + Sm.LastFetchError);
+
+            return parts.Count == 0 ? "" : string.Join("\n", parts);
+        }
+    }
+
+    private bool IsFirstWeekCurrentWeek => IsFirstWeekCurrentWeekImpl(Sm.Today);
+    private bool IsSecondWeekCurrentWeek => !IsFirstWeekCurrentWeek;
+
+    private string FirstWeekTitle
+    {
+        get
+        {
+            var thisMonday = Sm.Today.GetPreviousMonday();
+            var firstMonday = IsFirstWeekCurrentWeek ? thisMonday : thisMonday.AddDays(-7);
+            return $"1. Week {FormatDayMonth(firstMonday)}-{FormatDayMonth(firstMonday.AddDays(4))}";
+        }
+    }
+
+    private string SecondWeekTitle
+    {
+        get
+        {
+            var thisMonday = Sm.Today.GetPreviousMonday();
+            var secondMonday = IsSecondWeekCurrentWeek ? thisMonday : thisMonday.AddDays(7);
+            return $"2. Week {FormatDayMonth(secondMonday)}-{FormatDayMonth(secondMonday.AddDays(4))}";
+        }
+    }
+
+    private string FirstWeekHtml => GenerateWeekHtml(1);
+    private string SecondWeekHtml => GenerateWeekHtml(2);
+
+    private string GenerateWeekHtml(int weekIndex)
+    {
+        if (!_initialized) return "initializing...";
+
+        var thisMonday = Sm.Today.GetPreviousMonday();
+        DateTime monday;
+
+        if (weekIndex == 1)
+            monday = IsFirstWeekCurrentWeek ? thisMonday : thisMonday.AddDays(-7);
+        else
+            monday = IsSecondWeekCurrentWeek ? thisMonday : thisMonday.AddDays(7);
+
+        const int workDaysOfWeek = 5;
+        var lines = new List<string>();
+
+        for (int i = 0; i < workDaysOfWeek; i++)
+        {
+            var currentDate = monday.AddDays(i);
+            var text = GetDayOfWeek(i).Substring(0, 3);
+
+            if (Sm.IsHolidayForAllTeamMembers(currentDate))
+            {
+                var name = Sm.GetAllHolidayName(currentDate);
+                lines.Add($"<span class=\"disabled\">{text} - {System.Net.WebUtility.HtmlEncode(name)}</span><br>");
+            }
+            else
+            {
+                var smName = Sm.GetScrumMasterName(currentDate, (weekIndex - 1) * workDaysOfWeek + i);
+                var line = $"{text} - {System.Net.WebUtility.HtmlEncode(smName)}";
+
+                if (currentDate.Date < Sm.Today.Date)
+                    line = $"<s class=\"completed\">{line}</s>";
+                else if (currentDate.Date == Sm.Today.Date)
+                    line = $"<b class=\"current-scrum-master\">{line}</b>";
+
+                lines.Add(line + "<br>");
+            }
+        }
+
+        return string.Join("", lines);
+    }
+
+    private string WhosOutHtml
+    {
+        get
+        {
+            if (!_initialized) return "initializing...";
+            if (Sm.IsLoading && !Sm.HasCachedData) return "initializing...";
+
+            var items = Sm.WhosOut;
+            var sb = new System.Text.StringBuilder();
+            sb.Append("<ul>");
+            foreach (var item in items)
+            {
+                var cls = "";
+                if (!item.Approved) cls += " waiting";
+                cls += item.Status == 0 ? " current" : item.Status < 0 ? " completed" : " normal";
+
+                var teamMember = Sm.GetTeamMember(item.MemberId);
+                var shortName = teamMember?.ShortName ?? item.MemberId;
+
+                var title = System.Net.WebUtility.HtmlEncode(item.Reason);
+                var text = $"{System.Net.WebUtility.HtmlEncode(shortName)}&nbsp;{FormatDatePeriod(item.Start, item.End)}";
+
+                sb.Append($"<li class=\"{cls.Trim()}\" title=\"{title}\">{text}</li>");
+            }
+            sb.Append("</ul>");
+            return sb.ToString();
+        }
+    }
+
+    private static string FormatDatePeriod(DateTime start, DateTime end)
+        => FormatDayMonth(start) == FormatDayMonth(end)
+            ? FormatDayMonth(start)
+            : $"{FormatDayMonth(start)}-{FormatDayMonth(end)}";
+
+    private static string FormatDayMonth(DateTime date)
+        => $"{date:dd.MM}";
+
+    private static int CurrentWeekNumberFromFixedDate(DateTime date)
+    {
+        var fixedDate = new DateTime(2023, 1, 2);
+        var diff = date.Date - fixedDate.Date;
+        return (int)Math.Ceiling(diff.TotalDays / 7.0);
+    }
+
+    private static bool IsFirstWeekCurrentWeekImpl(DateTime date)
+        => CurrentWeekNumberFromFixedDate(date) % 2 == 0;
+
+    private static string GetDayOfWeek(int day)
+    {
+        string[] days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        if (day < 0 || day >= days.Length) return "";
+        return days[day];
+    }
+
+    private static string GetDayOfWeek(DayOfWeek d)
+    {
+        return d switch
+        {
+            DayOfWeek.Monday => "Monday",
+            DayOfWeek.Tuesday => "Tuesday",
+            DayOfWeek.Wednesday => "Wednesday",
+            DayOfWeek.Thursday => "Thursday",
+            DayOfWeek.Friday => "Friday",
+            DayOfWeek.Saturday => "Saturday",
+            DayOfWeek.Sunday => "Sunday",
+            _ => ""
+        };
+    }
+}
+
+<style>
+    .sm-spin {
+        animation: sm-rotate 1s infinite linear;
+        display: inline-block;
+    }
+
+    @@keyframes sm-rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+</style>

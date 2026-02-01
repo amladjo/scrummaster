@@ -1,0 +1,50 @@
+﻿# --- .NET / Blazor ---
+**/bin/
+**/obj/
+**/TestResults/
+**/*.user
+**/*.rsuser
+**/*.suo
+**/*.userosscache
+**/*.sln.docstates
+
+# MSBuild / publish output (we keep docs/ for GitHub Pages)
+**/publish/
+
+# .NET SDK tooling
+.artifacts/
+
+# NuGet
+**/packages/
+**/*.nupkg
+**/*.snupkg
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- IDEs ---
+# JetBrains Rider / IntelliJ
+.idea/
+*.sln.iml
+*.DotSettings.user
+
+# Visual Studio
+.vs/
+
+# VS Code
+.vscode/
+
+# --- Node (if ever used) ---
+node_modules/
+
+# --- GitHub Pages / static site ---
+# Keep the published site under docs/ tracked.
+!docs/
+!docs/**
+
+# If you ever generate a second publish folder, keep it ignored by default.
+# (Uncomment if you decide to publish to /docs only)
+# wwwroot/
+
