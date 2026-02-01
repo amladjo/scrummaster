@@ -67,4 +67,33 @@
     <WriteLinesToFile File="$(_NoJekyllFile)" Lines="" Overwrite="true" />
   </Target>
 
+  <!-- Create 404.html for GitHub Pages SPA fallback (so deep links/refresh work). -->
+  <Target Name="Create404HtmlForGitHubPages" AfterTargets="Publish">
+    <PropertyGroup>
+      <_PublishedIndexAtRoot>$(PublishDir)index.html</_PublishedIndexAtRoot>
+      <_Published404AtRoot>$(PublishDir)404.html</_Published404AtRoot>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="Creating '$(_Published404AtRoot)' from '$(_PublishedIndexAtRoot)'" />
+    <Copy SourceFiles="$(_PublishedIndexAtRoot)" DestinationFiles="$(_Published404AtRoot)" OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <PropertyGroup>
+    <!--
+      Auto-clean the publish output when publishing to the repo's GitHub Pages folder (docs/).
+      This prevents stale hashed artifacts from accumulating and confusing git.
+
+      Triggers only when publishing with -o .\docs.
+
+      MSBuild tip: use property functions via $([System.String]...) syntax.
+    -->
+    <CleanPublishDirBeforePublish Condition="$([System.String]::Copy('$(PublishDir)').EndsWith('\\docs\\')) Or $([System.String]::Copy('$(PublishDir)').EndsWith('/docs/'))">true</CleanPublishDirBeforePublish>
+  </PropertyGroup>
+
+  <Target Name="CleanPublishDir" BeforeTargets="Publish" Condition="'$(CleanPublishDirBeforePublish)' == 'true'">
+    <Message Importance="high" Text="Cleaning PublishDir before publish: '$(PublishDir)'" />
+    <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
+    <MakeDir Directories="$(PublishDir)" />
+  </Target>
+
 </Project>
