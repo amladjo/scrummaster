@@ -3,6 +3,7 @@
 @using SmBlazor.Utils
 @inject SmService Sm
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Scrum Master</PageTitle>
 
@@ -38,8 +39,13 @@
     private bool _wasLoading;
     private bool _showCheckIconInProgress;
 
+    private bool _todayFromQueryApplied;
+
     protected override async Task OnInitializedAsync()
     {
+        // Apply ?today=... once before first data load
+        ApplyTodayFromQueryString();
+
         await LogToConsoleAsync($"[OnInitializedAsync] _wasLoading={_wasLoading}, Sm.IsLoading={Sm.IsLoading}, _showCheckIcon={_showCheckIcon}");
         await Sm.InitializeAsync();
         _initialized = true;
@@ -48,6 +54,59 @@
         await InvokeAsync(StateHasChanged);
         await refreshTask;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplyTodayFromQueryString()
+    {
+        if (_todayFromQueryApplied) return;
+        _todayFromQueryApplied = true;
+
+        try
+        {
+            // NavigationManager.Uri includes the full URL (with query)
+            var uri = new Uri(Nav.Uri);
+            var query = uri.Query;
+            if (string.IsNullOrWhiteSpace(query)) return;
+
+            // Minimal query parsing; supports e.g. ?today=+1 or ?today=2026-02-01
+            var parts = query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+            string? todayParam = null;
+            foreach (var part in parts)
+            {
+                var kv = part.Split('=', 2);
+                if (kv.Length != 2) continue;
+                var key = Uri.UnescapeDataString(kv[0]);
+                if (!string.Equals(key, "today", StringComparison.OrdinalIgnoreCase)) continue;
+                todayParam = Uri.UnescapeDataString(kv[1]);
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(todayParam)) return;
+
+            // Same semantics as old HTML:
+            // - If param starts with space/+/-/0 and is numeric -> offset days
+            // - Else if is a valid date -> use that date
+            todayParam = todayParam.Trim();
+
+            if (todayParam.Length > 0 && (todayParam[0] == ' ' || todayParam[0] == '+' || todayParam[0] == '-' || todayParam[0] == '0'))
+            {
+                if (int.TryParse(todayParam, out var offsetDays))
+                {
+                    Sm.Today = Sm.Today.AddDays(offsetDays).Date;
+                    return;
+                }
+            }
+
+            // Accept ISO dates first; fall back to DateTime.TryParse
+            if (DateTime.TryParse(todayParam, out var parsed))
+            {
+                Sm.Today = parsed.Date;
+            }
+        }
+        catch
+        {
+            // ignore invalid query
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -132,7 +191,7 @@
         }
     }
 
-    private bool IsFirstWeekCurrentWeek => IsFirstWeekCurrentWeekImpl(Sm.Today);
+    private bool IsFirstWeekCurrentWeek => IsFirstWeekCurrentWeekImpl(Sm.Today.GetPreviousMonday());
     private bool IsSecondWeekCurrentWeek => !IsFirstWeekCurrentWeek;
 
     private string FirstWeekTitle
@@ -241,6 +300,10 @@
     {
         var fixedDate = new DateTime(2023, 1, 2);
         var diff = date.Date - fixedDate.Date;
+
+        // Match the legacy JS logic:
+        // Math.ceil((date - new Date(2023, 0, 2)) / 604800000)
+        // In .NET: use days/7.0 and Ceiling (no +1), so Monday stays consistently in its bucket.
         return (int)Math.Ceiling(diff.TotalDays / 7.0);
     }
 
