@@ -2,12 +2,14 @@
 body {
     font-family: 'Segoe UI', Tahoma, Helvetica, Sans-Serif, sans-serif;
     font-size: 12px;
+    margin: 8px;
 }
 
 h5 {
     font-size: 14px;
     margin-top: 5px;
     margin-bottom: 2px;
+    font-weight: bold;
     background: linear-gradient(to right, #e3eaed, transparent);
 }
 
