@@ -211,7 +211,8 @@
         {
             var thisMonday = Sm.Today.GetPreviousMonday();
             var firstMonday = IsFirstWeekCurrentWeek ? thisMonday : thisMonday.AddDays(-7);
-            return $"1. Week {FormatDayMonth(firstMonday)}-{FormatDayMonth(firstMonday.AddDays(4))}";
+            var weekNo = System.Globalization.ISOWeek.GetWeekOfYear(firstMonday);
+            return $"{weekNo}. {FormatDayMonth(firstMonday)}-{FormatDayMonth(firstMonday.AddDays(4))}";
         }
     }
 
@@ -221,7 +222,8 @@
         {
             var thisMonday = Sm.Today.GetPreviousMonday();
             var secondMonday = IsSecondWeekCurrentWeek ? thisMonday : thisMonday.AddDays(7);
-            return $"2. Week {FormatDayMonth(secondMonday)}-{FormatDayMonth(secondMonday.AddDays(4))}";
+            var weekNo = System.Globalization.ISOWeek.GetWeekOfYear(secondMonday);
+            return $"{weekNo}. {FormatDayMonth(secondMonday)}-{FormatDayMonth(secondMonday.AddDays(4))}";
         }
     }
 
@@ -246,6 +248,31 @@
         // Use the same list structure as Who's Out so spacing can be controlled with one CSS rule.
         lines.Add("<ul class=\"sm-rows\">");
 
+        // Determine assigned memberIds for this week (so we can resolve ShortName reliably)
+        IReadOnlyList<string> assignedIds = weekIndex == 1 ? Sm.FirstWeekTeamMembers : Sm.SecondWeekTeamMembers;
+
+        // Sprint planning: every 2nd Wednesday, anchored at Sprint20 starting on Wed 04.02.2026
+        static bool TryGetSprintPlanningLabel(DateTime date, out string label)
+        {
+            label = string.Empty;
+
+            // only Wednesdays
+            if (date.DayOfWeek != DayOfWeek.Wednesday) return false;
+
+            var sprint20Start = new DateTime(2026, 2, 4);
+            var diffDays = (date.Date - sprint20Start.Date).TotalDays;
+
+            // planning every 14 days starting from sprint20Start (inclusive)
+            if (diffDays < 0) return false;
+            var mod = ((int)diffDays) % 14;
+            if (mod != 0) return false;
+
+            var sprintIndex = (int)Math.Floor(diffDays / 14.0);
+            var sprintNo = 20 + sprintIndex;
+            label = $"Sprint{sprintNo}";
+            return true;
+        }
+
         for (int i = 0; i < workDaysOfWeek; i++)
         {
             var currentDate = monday.AddDays(i);
@@ -258,16 +285,38 @@
             }
             else
             {
-                var smName = Sm.GetScrumMasterName(currentDate, (weekIndex - 1) * workDaysOfWeek + i);
-                var line = $"{text} - {System.Net.WebUtility.HtmlEncode(smName)}";
+                // If this is a sprint planning Wednesday, show sprint label instead of team member.
+                if (TryGetSprintPlanningLabel(currentDate, out var sprintLabel))
+                {
+                    var tooltip = System.Net.WebUtility.HtmlEncode("Daily is not held on this day because it's planning day");
+                    lines.Add($"<li><span title=\"{tooltip}\">{text} - {System.Net.WebUtility.HtmlEncode(sprintLabel)}</span></li>");
+                    continue;
+                }
+
+                // Resolve current Scrum Master by memberId -> ShortName (fallback to whatever the service returns)
+                var memberId = i < assignedIds.Count ? assignedIds[i] : string.Empty;
+                var member = string.IsNullOrWhiteSpace(memberId) ? null : Sm.GetTeamMember(memberId);
+
+                var displayName = member?.ShortName;
+                var fullName = member?.Name;
+
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    var fallbackName = Sm.GetScrumMasterName(currentDate, (weekIndex - 1) * workDaysOfWeek + i);
+                    displayName = fallbackName;
+                }
+
+                var lineText = $"{text} - {System.Net.WebUtility.HtmlEncode(displayName)}";
+                if (!string.IsNullOrWhiteSpace(fullName))
+                    lineText = $"<span title=\"{System.Net.WebUtility.HtmlEncode(fullName)}\">{lineText}</span>";
 
                 // Keep existing visual cues, but apply them inside a <li>
                 if (currentDate.Date < Sm.Today.Date)
-                    line = $"<s class=\"completed\">{line}</s>";
+                    lineText = $"<s class=\"completed\">{lineText}</s>";
                 else if (currentDate.Date == Sm.Today.Date)
-                    line = $"<b class=\"current-scrum-master\">{line}</b>";
+                    lineText = $"<b class=\"current-scrum-master\">{lineText}</b>";
 
-                lines.Add($"<li>{line}</li>");
+                lines.Add($"<li>{lineText}</li>");
             }
         }
 
