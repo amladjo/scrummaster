@@ -352,7 +352,8 @@
                 titleParts.Add($"Members: {string.Join(", ", members)}");
                 var title = System.Net.WebUtility.HtmlEncode(string.Join("\n", titleParts));
 
-                var summaryText = $"{System.Net.WebUtility.HtmlEncode(holidayName)}&nbsp;{FormatDatePeriod(item.Start, item.End)}";
+                // Keep the row compact: show only the period + country; holiday name is available in tooltip.
+                var summaryText = $"{FormatDatePeriod(item.Start, item.End)}";
                 if (countries.Count > 0)
                     summaryText += $"&nbsp;<span class=\"muted\">({System.Net.WebUtility.HtmlEncode(string.Join(", ", countries))})</span>";
 
