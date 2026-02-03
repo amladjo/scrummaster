@@ -12,7 +12,7 @@
         <td colspan="3" style="padding: 15px;">&nbsp;</td>
     </tr>
     <tr>
-        <td colspan="3" style="padding-bottom: 10px;">
+        <td colspan="3" style="text-align: left;">
             <div style="display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center;">
                     <span id="today" style="font-weight: 600;">@TodayText</span>
@@ -321,11 +321,13 @@
     private static bool IsFirstWeekCurrentWeekImpl(DateTime date)
         => CurrentWeekNumberFromFixedDate(date) % 2 == 0;
 
+    // Replaced invalid array literal with a readonly array field and a safe accessor.
+    private static readonly string[] DayNames = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
+
     private static string GetDayOfWeek(int day)
     {
-        string[] days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-        if (day < 0 || day >= days.Length) return "";
-        return days[day];
+        if (day < 0 || day >= DayNames.Length) return "";
+        return DayNames[day];
     }
 
     private static string GetDayOfWeek(DayOfWeek d)
