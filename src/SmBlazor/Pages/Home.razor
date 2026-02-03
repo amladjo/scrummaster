@@ -243,6 +243,9 @@
         const int workDaysOfWeek = 5;
         var lines = new List<string>();
 
+        // Use the same list structure as Who's Out so spacing can be controlled with one CSS rule.
+        lines.Add("<ul class=\"sm-rows\">");
+
         for (int i = 0; i < workDaysOfWeek; i++)
         {
             var currentDate = monday.AddDays(i);
@@ -251,21 +254,24 @@
             if (Sm.IsHolidayForAllTeamMembers(currentDate))
             {
                 var name = Sm.GetAllHolidayName(currentDate);
-                lines.Add($"<span class=\"disabled\">{text} - {System.Net.WebUtility.HtmlEncode(name)}</span><br>");
+                lines.Add($"<li class=\"disabled\">{text} - {System.Net.WebUtility.HtmlEncode(name)}</li>");
             }
             else
             {
                 var smName = Sm.GetScrumMasterName(currentDate, (weekIndex - 1) * workDaysOfWeek + i);
                 var line = $"{text} - {System.Net.WebUtility.HtmlEncode(smName)}";
 
+                // Keep existing visual cues, but apply them inside a <li>
                 if (currentDate.Date < Sm.Today.Date)
                     line = $"<s class=\"completed\">{line}</s>";
                 else if (currentDate.Date == Sm.Today.Date)
                     line = $"<b class=\"current-scrum-master\">{line}</b>";
 
-                lines.Add(line + "<br>");
+                lines.Add($"<li>{line}</li>");
             }
         }
+
+        lines.Add("</ul>");
 
         return string.Join("", lines);
     }
@@ -279,9 +285,92 @@
 
             var items = Sm.WhosOut;
             var sb = new System.Text.StringBuilder();
-            sb.Append("<ul>");
+            sb.Append("<ul class=\"sm-rows\">");
+
+            static bool IsHolidayItem(SmBlazor.Models.WhosOutItem i)
+                => !string.IsNullOrWhiteSpace(i.Reason)
+                   && i.Reason.Trim().EndsWith("(holiday)", StringComparison.OrdinalIgnoreCase);
+
+            static string GetHolidayName(SmBlazor.Models.WhosOutItem i)
+            {
+                var r = (i.Reason ?? string.Empty).Trim();
+                return r.EndsWith("(holiday)", StringComparison.OrdinalIgnoreCase)
+                    ? r.Substring(0, r.Length - "(holiday)".Length).Trim()
+                    : r;
+            }
+
+            // Build a single list of renderable rows, then sort chronologically by period start.
+            // If it's a period, Start is the first date, so it matches the requested ordering.
+            var rows = new List<(DateTime Start, int Status, string Html)>();
+
+            // --- Holiday grouped rows ---
+            // We keep grouping key by Start+End+HolidayName+Country (from Sm.Holidays).
+            var renderedHolidayKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var item in items)
             {
+                if (!IsHolidayItem(item)) continue;
+
+                var holidayName = GetHolidayName(item);
+
+                // Find country for this holiday/date/name (if duplicates, join distinct).
+                var countries = Sm.Holidays
+                    .Where(h => h.Date.Date == item.Start.Date
+                                && string.Equals(h.Name, holidayName, StringComparison.OrdinalIgnoreCase))
+                    .Select(h => (h.Country ?? string.Empty).Trim())
+                    .Where(c => c.Length > 0)
+                    .SelectMany(c => c.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()))
+                    .Where(c => c.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(c => c)
+                    .ToList();
+
+                var countryKey = countries.Count == 0 ? "" : string.Join(",", countries).ToLowerInvariant();
+                var key = $"{item.Start:O}|{item.End:O}|{holidayName.ToLowerInvariant()}|{countryKey}";
+                if (!renderedHolidayKeys.Add(key)) continue;
+
+                var group = items
+                    .Where(i => IsHolidayItem(i)
+                                && i.Start.Date == item.Start.Date
+                                && i.End.Date == item.End.Date
+                                && string.Equals(GetHolidayName(i), holidayName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var members = group
+                    .Select(i => Sm.GetTeamMember(i.MemberId)?.ShortName ?? i.MemberId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(n => n)
+                    .ToList();
+
+                var cls = "";
+                if (!group.All(g => g.Approved)) cls += " waiting";
+                var status = group.Min(g => g.Status);
+                cls += status == 0 ? " current" : status < 0 ? " completed" : " normal";
+
+                var titleParts = new List<string> { $"{holidayName} (holiday)" };
+                if (countries.Count > 0) titleParts.Add($"Country: {string.Join(", ", countries)}");
+                titleParts.Add($"Members: {string.Join(", ", members)}");
+                var title = System.Net.WebUtility.HtmlEncode(string.Join("\n", titleParts));
+
+                var summaryText = $"{System.Net.WebUtility.HtmlEncode(holidayName)}&nbsp;{FormatDatePeriod(item.Start, item.End)}";
+                if (countries.Count > 0)
+                    summaryText += $"&nbsp;<span class=\"muted\">({System.Net.WebUtility.HtmlEncode(string.Join(", ", countries))})</span>";
+
+                var html = $"<li class=\"{cls.Trim()}\" title=\"{title}\">" +
+                           $"<details class=\"whosout-holiday\">" +
+                           $"<summary>{summaryText}</summary>" +
+                           $"<div class=\"holiday-members\">{System.Net.WebUtility.HtmlEncode(string.Join(", ", members))}</div>" +
+                           $"</details>" +
+                           "</li>";
+
+                rows.Add((item.Start, status, html));
+            }
+
+            // --- Non-holiday rows ---
+            foreach (var item in items)
+            {
+                if (IsHolidayItem(item)) continue;
+
                 var cls = "";
                 if (!item.Approved) cls += " waiting";
                 cls += item.Status == 0 ? " current" : item.Status < 0 ? " completed" : " normal";
@@ -292,8 +381,20 @@
                 var title = System.Net.WebUtility.HtmlEncode(item.Reason);
                 var text = $"{System.Net.WebUtility.HtmlEncode(shortName)}&nbsp;{FormatDatePeriod(item.Start, item.End)}";
 
-                sb.Append($"<li class=\"{cls.Trim()}\" title=\"{title}\">{text}</li>");
+                var html = $"<li class=\"{cls.Trim()}\" title=\"{title}\">{text}</li>";
+                rows.Add((item.Start, item.Status, html));
             }
+
+            // Sort: chronological by period start (Start), then by Status (current first), then stable by HTML.
+            // This ensures holidays don't jump to the top just because we grouped them.
+            foreach (var row in rows
+                         .OrderBy(r => r.Start)
+                         .ThenBy(r => r.Status)
+                         .ThenBy(r => r.Html, StringComparer.Ordinal))
+            {
+                sb.Append(row.Html);
+            }
+
             sb.Append("</ul>");
             return sb.ToString();
         }
@@ -365,5 +466,57 @@
     @@keyframes sm-rotate {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
+    }
+
+    /*
+      One knob to tune row spacing across BOTH:
+      - left week lists
+      - right Who's Out list
+
+      Try values like:
+        --sm-row-line-height: 1.05;  (tighter)
+        --sm-row-line-height: 1.15;  (default-ish)
+        --sm-row-line-height: 1.30;  (looser)
+
+      And/or padding:
+        --sm-row-pad-y: 0px;  (tight)
+        --sm-row-pad-y: 2px;  (roomier)
+    */
+    :root {
+        --sm-row-line-height: 1.15;
+        --sm-row-pad-y: 0px;
+    }
+
+    ul.sm-rows {
+        margin: 0;
+        padding-left: 18px; /* keep a nice bullet indent */
+    }
+
+    ul.sm-rows > li {
+        margin: 0;
+        padding: var(--sm-row-pad-y) 0;
+        line-height: var(--sm-row-line-height);
+    }
+
+    /* Muted helper already used in holiday summary */
+    .muted {
+        opacity: 0.75;
+        font-size: 0.95em;
+    }
+
+    details.whosout-holiday > summary {
+        cursor: pointer;
+        list-style: none;
+    }
+
+    /* Hide default marker in some browsers; keep the click/toggle behavior */
+    details.whosout-holiday > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    details.whosout-holiday .holiday-members {
+        margin-top: 2px;
+        opacity: 0.9;
+        font-size: 0.95em;
     }
 </style>
